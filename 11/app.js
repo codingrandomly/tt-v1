@@ -1,6 +1,11 @@
 // --- API CONFIGURATION ---
 const API_BASE_URL = "https://stock.indianapi.in/";
 const API_KEY = "sk-live-VZE1udfc3spNGKATbBNinFKbU2jSlAbnd9qNR72t"; // YOUR API KEY
+// We use the Authorization header for the API Key as required by many modern APIs.
+const API_HEADERS = {
+    'Authorization': `Bearer ${API_KEY}`,
+    'Content-Type': 'application/json'
+};
 
 // --- GLOBAL DATA STATE (To be populated by API) ---
 let companies = [];          // Array of all companies for search/main table 
@@ -10,8 +15,7 @@ let portfolioData = {        // Portfolio holdings and historical performance
     performance: []
 };
 let financialData = {};      // Detailed financial statements by ticker
-// NOTE: chatbotResponses is defined lower down in the file (Line 806) and will cause a duplicate declaration error here.
-// We will only declare it once near the end of the file.
+
 
 // Global UI state
 let currentPage = 'home';
@@ -30,8 +34,10 @@ let chartInstances = {};
  */
 function generateMockHistory(startPrice, days) {
     const history = [];
+    // Start price 5% lower to show growth over time
     let price = startPrice * 0.95; 
     for (let i = 0; i < days; i++) {
+        // Daily price fluctuation
         price = price * (1 + (Math.random() * 0.01 - 0.005));
         const date = new Date();
         date.setDate(date.getDate() - (days - i));
@@ -48,7 +54,7 @@ function generateMockHistory(startPrice, days) {
  * @param {number} num - The number to format.
  */
 function formatCurrency(num) {
-    if (typeof num !== 'number' || isNaN(num)) return 'N/A';
+    if (typeof num !== 'number' || isNaN(num) || num === null) return 'N/A';
     
     const absNum = Math.abs(num);
     const sign = num < 0 ? '-' : '';
@@ -63,7 +69,7 @@ function formatCurrency(num) {
 
 // --- API INTEGRATION POINT (LIVE DATA RESTORED) ---
 
-// --- NEW MOCK DATA STRUCTURE FOR GUARANTEED LOAD ---
+// --- NEW MOCK DATA STRUCTURE FOR GUARANTEED LOAD (Enhanced) ---
 const INITIAL_MOCK_COMPANIES = [
     { name: "Reliance Industries", ticker: "RELIANCE", price: 2856.75, change: 2.34, sector: "Energy", marketCap: 19324560000000, pe: 35.1, roe: 12.4 },
     { name: "Tata Consultancy Services", ticker: "TCS", price: 3834.50, change: -1.23, sector: "IT", marketCap: 13987650000000, pe: 28.5, roe: 45.2 },
@@ -81,8 +87,8 @@ async function fetchDataAndInitialize() {
         document.querySelector('#chatbot-messages span').textContent = "Attempting to fetch live data...";
         
         // 1. Fetch the list of all available tickers
-        const listEndpoint = `${API_BASE_URL}list?api_key=${API_KEY}`;
-        const listResponse = await fetch(listEndpoint);
+        const listEndpoint = `${API_BASE_URL}list`;
+        const listResponse = await fetch(listEndpoint, { headers: API_HEADERS });
         
         if (!listResponse.ok) {
             throw new Error(`HTTP error! status: ${listResponse.status}`);
@@ -94,13 +100,12 @@ async function fetchDataAndInitialize() {
             throw new Error(listData.message || "Failed to fetch stock list.");
         }
 
-        // Map the list to the 'companies' structure
+        // Map the list to the 'companies' structure (Mocking metrics, but keeping real names/tickers)
         const apiCompanies = listData.data
             .filter(item => item.Symbol && item.Name)
             .map(item => ({
                 name: item.Name,
                 ticker: item.Symbol,
-                // Mocking financial metrics for all stocks but RELIANCE
                 price: Math.random() * 2000 + 100, 
                 change: Math.random() * 5 - 2.5,  
                 marketCap: (Math.random() * 1000000000000) + 10000000000,
@@ -112,7 +117,7 @@ async function fetchDataAndInitialize() {
                 salesGrowth: 10 + Math.random() * 10
             }));
         
-        // Overwrite initial mock data with the list data
+        // Overwrite initial mock data with the full list
         companies = apiCompanies;
         stockData = [...companies];
         filteredStocks = [...stockData];
@@ -122,14 +127,14 @@ async function fetchDataAndInitialize() {
         await fetchDetailData("RELIANCE"); 
 
         
-        // 3. Re-initialize UI with live data updates (run after data structures are fully populated)
+        // 3. Re-initialize UI with live data updates
         setupSearch();
         loadScreensPage(); 
         
         document.querySelector('#chatbot-messages span').textContent = `Success! Over ${companies.length} tickers loaded. Search for any company or view the Screens page.`;
 
     } catch (error) {
-        console.error("Live Data Fetch Failed:", error);
+        console.error("Live Data Fetch Failed (Reverted to Mock):", error);
         document.querySelector('#chatbot-messages span').textContent = "Live data failed to load. Using fallback demo data.";
     }
 }
@@ -139,8 +144,8 @@ async function fetchDataAndInitialize() {
  */
 async function fetchDetailData(ticker) {
     try {
-        const detailEndpoint = `${API_BASE_URL}stock?api_key=${API_KEY}&ticker=${ticker}`;
-        const detailResponse = await fetch(detailEndpoint);
+        const detailEndpoint = `${API_BASE_URL}stock?ticker=${ticker}`;
+        const detailResponse = await fetch(detailEndpoint, { headers: API_HEADERS });
         
         if (!detailResponse.ok) {
             throw new Error(`HTTP error! status: ${detailResponse.status}`);
@@ -153,11 +158,25 @@ async function fetchDetailData(ticker) {
         }
         
         const stock = detailData.data;
+        
+        // --- DATA CLEANING AND CONVERSION ---
         const currentPrice = parseFloat(stock.currentPrice.replace(/,/g, ''));
-        const marketCapNum = parseFloat(stock.marketCap.replace(/[^0-9.]/g, '')) * 10000000; 
         const change = parseFloat(stock.change.replace(/[^0-9.-]/g, ''));
         const peNum = parseFloat(stock.pe);
         const roeNum = parseFloat(stock.roe);
+        
+        const marketCapText = stock.marketCap ? stock.marketCap.replace(/,/g, '') : '0';
+        let marketCapNum = 0;
+
+        // More robust conversion for Indian market units
+        if (marketCapText.includes('Cr')) {
+            marketCapNum = parseFloat(marketCapText.replace(' Cr', '')) * 10000000;
+        } else if (marketCapText.includes('L')) {
+            marketCapNum = parseFloat(marketCapText.replace(' L', '')) * 100000;
+        } else {
+             marketCapNum = parseFloat(marketCapText);
+        }
+        // --- END DATA CLEANING ---
 
         // Update the stock entry with real data
         const companyIndex = companies.findIndex(c => c.ticker === ticker);
@@ -179,12 +198,13 @@ async function fetchDetailData(ticker) {
             stockData[companyIndex] = {...stockData[companyIndex], ...updatedData};
             
         } else {
-            // Add if RELIANCE wasn't in the list for some reason
+            // Add if ticker was not in the list
             companies.push({ name: stock.name, ticker: stock.ticker, price: currentPrice, change: change, sector: stock.sector, marketCap: marketCapNum, pe: peNum, roe: roeNum });
         }
 
         // Populate 'financialData' (Mocked statements, Real key metrics)
         financialData[ticker] = {
+            // Mocked financial statements using real market cap as base scale
             profitLoss: [
                 { item: "Revenue", 2024: marketCapNum/5, 2023: marketCapNum/6, 2022: marketCapNum/7, 2021: marketCapNum/8, 2020: marketCapNum/9 },
                 { item: "EBITDA", 2024: marketCapNum/10, 2023: marketCapNum/11, 2022: marketCapNum/12, 2021: marketCapNum/13, 2020: marketCapNum/14 },
@@ -205,7 +225,7 @@ async function fetchDetailData(ticker) {
             }
         };
         
-        // Mock portfolio data using the real price
+        // Mock portfolio data
         portfolioData = {
             holdings: [
                 { ticker: ticker, name: stock.name, qty: 50, avgPrice: currentPrice * 0.9, currentPrice: currentPrice, weight: 18.5 },
@@ -357,6 +377,7 @@ window.selectCompany = function(ticker) {
             showTab(null, 'profit-loss', true);
         } else {
              // Handle case where we have basic info but not detailed financial data (e.g., from the API list call)
+            // We use the basic mock data/placeholder fields
             alert(`Detailed financial data (P&L, Balance Sheet) not found for ${ticker}. Only showing key metrics.`);
             // Clear detailed sections
             document.getElementById('market-cap').textContent = formatCurrency(company.marketCap);
