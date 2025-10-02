@@ -1,20 +1,33 @@
-// --- API CONFIGURATION ---
-const API_BASE_URL = "https://stock.indianapi.in/";
-const API_KEY = "sk-live-VZE1udfc3spNGKATbBNinFKbU2jSlAbnd9qNR72t"; // YOUR API KEY
-// We use the Authorization header for the API Key as required by many modern APIs.
+// --- API CONFIGURATION (PHP PROXY) ---
+// This URL points to our PHP proxy file (Crucial for avoiding CORS errors)
+const PROXY_URL = "api_proxy.php"; 
+
+// --- GEMINI API CONFIGURATION ---
+const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent";
+const GEMINI_API_KEY = "AIzaSyDJTQS61tkYqq0i6orYgTH7Bgpw9xzDlIk"; // Your Working Gemini Key
+
+// FIX: Using a comprehensive list of known Indian tickers for mock data fallback.
+const RELIABLE_TICKERS = [
+    "RELIANCE", "TCS", "HDFCBANK", "INFY", "ITC", "SBIN", "KOTAKBANK", 
+    "HINDUNILVR", "ICICIBANK", "BAJFINANCE", "ASIANPAINT", "MARUTI",
+    "HCLTECH", "WIPRO", "AXISBANK", "TECHM", "NESTLEIND", "LT", 
+    "TITAN", "SUNPHARMA", "DRREDDY", "ADANIPORTS", "BHARTIARTL", 
+    "INDUSINDBK", "ULTRACEMCO", "GRASIM", "M&M", "TATASTEEL", "NTPC",
+    "POWERGRID", "ONGC", "BPCL", "IOC", "COALINDIA", "GAIL", "HDFC"
+];
+
 const API_HEADERS = {
-    'Authorization': `Bearer ${API_KEY}`,
     'Content-Type': 'application/json'
 };
 
-// --- GLOBAL DATA STATE (To be populated by API) ---
-let companies = [];          // Array of all companies for search/main table 
-let stockData = [];          // Detailed stock data for screening 
-let portfolioData = {        // Portfolio holdings and historical performance
+// --- GLOBAL DATA STATE ---
+let companies = [];          
+let stockData = [];          
+let portfolioData = {        
     holdings: [],
     performance: []
 };
-let financialData = {};      // Detailed financial statements by ticker
+let financialData = {};      
 
 
 // Global UI state
@@ -30,14 +43,12 @@ let chartInstances = {};
 // --- UTILITY FUNCTIONS ---
 
 /**
- * Generates simple mock price history for the charts
+ * Generates mock price history for filling missing data
  */
 function generateMockHistory(startPrice, days) {
     const history = [];
-    // Start price 5% lower to show growth over time
     let price = startPrice * 0.95; 
     for (let i = 0; i < days; i++) {
-        // Daily price fluctuation
         price = price * (1 + (Math.random() * 0.01 - 0.005));
         const date = new Date();
         date.setDate(date.getDate() - (days - i));
@@ -51,7 +62,6 @@ function generateMockHistory(startPrice, days) {
 
 /**
  * Formats numbers into Indian currency scale (Lakhs, Crores) and adds ₹ prefix.
- * @param {number} num - The number to format.
  */
 function formatCurrency(num) {
     if (typeof num !== 'number' || isNaN(num) || num === null) return 'N/A';
@@ -67,218 +77,240 @@ function formatCurrency(num) {
     return `${sign}₹${absNum.toFixed(2)}`;
 }
 
-// --- API INTEGRATION POINT (LIVE DATA RESTORED) ---
+// Mock data generation function
+function createMockCompanyData(ticker) {
+    const basePrice = Math.random() * 3000 + 500;
+    const marketCapBase = (Math.random() * 1000 + 100) * 10000000;
 
-// --- NEW MOCK DATA STRUCTURE FOR GUARANTEED LOAD (Enhanced) ---
-const INITIAL_MOCK_COMPANIES = [
-    { name: "Reliance Industries", ticker: "RELIANCE", price: 2856.75, change: 2.34, sector: "Energy", marketCap: 19324560000000, pe: 35.1, roe: 12.4 },
-    { name: "Tata Consultancy Services", ticker: "TCS", price: 3834.50, change: -1.23, sector: "IT", marketCap: 13987650000000, pe: 28.5, roe: 45.2 },
-    { name: "HDFC Bank", ticker: "HDFCBANK", price: 1667.25, change: 0.89, sector: "Banking", marketCap: 12345670000000, pe: 20.3, roe: 16.8 },
-    { name: "Infosys", ticker: "INFY", price: 1489.40, change: 1.56, sector: "IT", marketCap: 6543210000000, pe: 22.3, roe: 28.9 },
-    { name: "ITC Limited", ticker: "ITC", price: 456.75, change: -0.34, sector: "FMCG", marketCap: 5678900000000, pe: 24.7, roe: 22.1 }
-];
+    return {
+        name: ticker + ' Corp.', 
+        ticker: ticker,
+        price: basePrice, 
+        change: Math.random() * 5 - 2.5,  
+        marketCap: marketCapBase,
+        pe: Math.random() * 50 + 10,
+        roe: Math.random() * 30 + 5,
+        sector: ["IT", "Energy", "Banking", "FMCG"][Math.floor(Math.random() * 4)],
+        dividend: 1.2 + Math.random() * 3,
+        growth: 5 + Math.random() * 15,
+        salesGrowth: 10 + Math.random() * 10,
+        // Generate all time periods for mock data stability
+        priceHistory: {
+            '1M': generateMockHistory(basePrice, 30),
+            '3M': generateMockHistory(basePrice, 90),
+            '6M': generateMockHistory(basePrice, 180),
+            '1Y': generateMockHistory(basePrice, 365),
+            '5Y': generateMockHistory(basePrice, 1825),
+        }
+    };
+}
 
-/**
- * This function fetches all initial data using the API key.
- * Now runs AFTER mock data is loaded.
- */
+
+// --- PHP PROXY CALL FUNCTION (Fincrux) ---
+async function fetchViaProxy(endpoint, params = {}) {
+    const urlParams = new URLSearchParams({ endpoint: endpoint, ...params }).toString();
+    const url = `${PROXY_URL}?${urlParams}`;
+    
+    try {
+        const response = await fetch(url, { headers: API_HEADERS });
+        if (!response.ok) {
+            console.error(`Proxy returned HTTP error: ${response.status}`);
+            return null;
+        }
+        const data = await response.json();
+        return data.data; 
+    } catch (e) {
+        console.error(`Fetch failed via proxy:`, e);
+        return null;
+    }
+}
+
+// Rewriting API fetch functions to use the PHP proxy
+async function fetchQuote(ticker) { return fetchViaProxy('quote', { ticker: ticker }); }
+async function fetchKeyMetrics(ticker) { 
+    const data = await fetchViaProxy('metrics', { ticker: ticker, period: 'annual' });
+    return data ? data : []; 
+}
+async function fetchHistoricalData(ticker) {
+    const data = await fetchViaProxy('history', { ticker: ticker, interval: '1d', limit: 250 });
+    return data; 
+}
+
+
 async function fetchDataAndInitialize() {
     try {
-        document.querySelector('#chatbot-messages span').textContent = "Attempting to fetch live data...";
+        document.querySelector('#chatbot-messages span').textContent = "Attempting to fetch live data (via PHP proxy)...";
         
-        // 1. Fetch the list of all available tickers
-        const listEndpoint = `${API_BASE_URL}list`;
-        const listResponse = await fetch(listEndpoint, { headers: API_HEADERS });
-        
-        if (!listResponse.ok) {
-            throw new Error(`HTTP error! status: ${listResponse.status}`);
-        }
-        
-        const listData = await listResponse.json();
+        let liveTickers = [];
+        let successCount = 0;
 
-        if (listData.status !== "success" || !listData.data || listData.data.length === 0) {
-            throw new Error(listData.message || "Failed to fetch stock list.");
+        // 1. Fetch Master Stock List (List of all tickers)
+        const allSymbols = await fetchViaProxy('stock/list');
+
+        if (allSymbols && allSymbols.length > 0) {
+            liveTickers = allSymbols
+                .filter(s => s.exchange === 'NSE' || s.exchange === 'BSE')
+                .slice(0, 50)
+                .map(s => s.symbol);
+        } else {
+            liveTickers = RELIABLE_TICKERS;
         }
 
-        // Map the list to the 'companies' structure (Mocking metrics, but keeping real names/tickers)
-        const apiCompanies = listData.data
-            .filter(item => item.Symbol && item.Name)
-            .map(item => ({
-                name: item.Name,
-                ticker: item.Symbol,
-                price: Math.random() * 2000 + 100, 
-                change: Math.random() * 5 - 2.5,  
-                marketCap: (Math.random() * 1000000000000) + 10000000000,
-                pe: Math.random() * 50 + 10,
-                roe: Math.random() * 30 + 5,
-                sector: "General",
-                dividend: 1.2 + Math.random() * 3,
-                growth: 5 + Math.random() * 15,
-                salesGrowth: 10 + Math.random() * 10
-            }));
+        document.querySelector('#chatbot-messages span').textContent = `Fetching quotes & metrics for ${liveTickers.length} stocks...`;
+
+        // 2. Fetch Quotes and Key Metrics concurrently
+        const quotePromises = liveTickers.map(ticker => fetchQuote(ticker));
+        const keyMetricsPromises = liveTickers.map(ticker => fetchKeyMetrics(ticker));
         
-        // Overwrite initial mock data with the full list
-        companies = apiCompanies;
+        const [allQuotes, allMetrics] = await Promise.all([
+            Promise.allSettled(quotePromises), 
+            Promise.allSettled(keyMetricsPromises)
+        ]);
+
+        let liveCompanies = [];
+        
+        // 3. Process Fetched Data and Merge with Mock
+        liveTickers.forEach((ticker, index) => {
+            const quoteResult = allQuotes[index];
+            const metricsResult = allMetrics[index];
+
+            const quote = quoteResult.status === 'fulfilled' && quoteResult.value ? quoteResult.value : null;
+            const metrics = metricsResult.status === 'fulfilled' && Array.isArray(metricsResult.value) ? metricsResult.value : [];
+
+            const mock = createMockCompanyData(ticker);
+            
+            if (quote) successCount++;
+            
+            // Fincrux fields: last, changePercent, marketCap
+            const lastPrice = quote?.last || mock.price;
+            const marketCap = quote?.marketCap || mock.marketCap;
+            const pe = metrics.length > 0 ? metrics[0].peRatio : mock.pe;
+            const roe = metrics.length > 0 ? metrics[0].roe : mock.roe;
+
+            let companyData = {
+                ticker: ticker,
+                name: quote?.name || mock.name, 
+                price: lastPrice,
+                change: quote?.changePercent || mock.change,
+                sector: quote?.exchange || mock.sector,
+                
+                marketCap: marketCap, pe: pe, roe: roe, 
+                dividend: mock.dividend, growth: mock.growth, salesGrowth: mock.salesGrowth,
+                priceHistory: mock.priceHistory, 
+            };
+            
+            liveCompanies.push(companyData);
+        });
+
+        companies = liveCompanies;
         stockData = [...companies];
         filteredStocks = [...stockData];
 
-
-        // 2. Fetch detailed data for one specific stock (RELIANCE)
-        await fetchDetailData("RELIANCE"); 
-
+        // 4. Fetch Historical data for the main stock (RELIANCE)
+        const historicalData = await fetchHistoricalData("RELIANCE");
         
-        // 3. Re-initialize UI with live data updates
-        setupSearch();
+        const relianceCompany = companies.find(c => c.ticker === "RELIANCE");
+        if (historicalData && relianceCompany && historicalData.length > 0) {
+            const history = historicalData.map(d => ({
+                date: d.date.split('T')[0],
+                price: d.close
+            }));
+            
+            // Update ALL required periods with slices of the real history
+            relianceCompany.priceHistory = {
+                '1M': history.slice(-21), 
+                '3M': history.slice(-63),
+                '6M': history.slice(-126),
+                '1Y': history, // Up to 250 days from Fincrux limit
+                '5Y': generateMockHistory(relianceCompany.price, 1825) // Keep mock for long periods
+            };
+        }
+
+
+        // 5. Final initialization and display update
+        companies.forEach(company => populateFinancialData(company.ticker, company));
+        
         loadScreensPage(); 
         
-        document.querySelector('#chatbot-messages span').textContent = `Success! Over ${companies.length} tickers loaded. Search for any company or view the Screens page.`;
+        document.querySelector('#chatbot-messages span').textContent = 
+            `Success! Live data loaded for ${successCount}/${liveTickers.length} stocks via PHP proxy.`;
 
     } catch (error) {
-        console.error("Live Data Fetch Failed (Reverted to Mock):", error);
+        console.error("Data Fetch Failed (Using Mock Fallback):", error);
         document.querySelector('#chatbot-messages span').textContent = "Live data failed to load. Using fallback demo data.";
+        
+        // If API fails, re-initialize with the initial mock data
+        companies = RELIABLE_TICKERS.map(createMockCompanyData);
+        stockData = [...companies];
+        filteredStocks = [...stockData];
+        companies.forEach(company => populateFinancialData(company.ticker, company));
+        loadScreensPage(); 
     }
 }
 
 /**
- * Fetches detailed stock data for a single stock and mocks the necessary structure.
+ * Populates the financialData object for a given ticker (Mocks statements, uses real ratios if available)
  */
-async function fetchDetailData(ticker) {
-    try {
-        const detailEndpoint = `${API_BASE_URL}stock?ticker=${ticker}`;
-        const detailResponse = await fetch(detailEndpoint, { headers: API_HEADERS });
-        
-        if (!detailResponse.ok) {
-            throw new Error(`HTTP error! status: ${detailResponse.status}`);
+function populateFinancialData(ticker, company) {
+    const marketCapNum = company.marketCap || 100000000000;
+    
+    financialData[ticker] = {
+        // Mocked financial statements using market cap as base scale
+        profitLoss: [
+            { item: "Revenue", 2024: marketCapNum/5, 2023: marketCapNum/6, 2022: marketCapNum/7, 2021: marketCapNum/8, 2020: marketCapNum/9 },
+            { item: "Net Profit", 2024: marketCapNum/30, 2023: marketCapNum/35, 2022: marketCapNum/40, 2021: marketCapNum/45, 2020: marketCapNum/50 }
+        ],
+        balanceSheet: [
+            { item: "Total Assets", 2024: marketCapNum*1.5, 2023: marketCapNum*1.4, 2022: marketCapNum*1.3, 2021: marketCapNum*1.2, 2020: marketCapNum*1.1 },
+            { item: "Total Liabilities", 2024: marketCapNum*0.5, 2023: marketCapNum*0.4, 2022: marketCapNum*0.3, 2021: marketCapNum*0.2, 2020: marketCapNum*0.1 }
+        ],
+        cashFlow: [
+            { item: "Operating Cash Flow", 2024: marketCapNum/15, 2023: marketCapNum/16, 2022: marketCapNum/17, 2021: marketCapNum/18, 2020: marketCapNum/19 },
+            { item: "Free Cash Flow", 2024: marketCapNum/20, 2023: marketCapNum/21, 2022: marketCapNum/22, 2021: marketCapNum/23, 2020: marketCapNum/24 }
+        ],
+        keyMetrics: { 
+            marketCap: formatCurrency(marketCapNum), 
+            pe: company.pe?.toFixed(1) || 'N/A', 
+            roe: company.roe?.toFixed(1) + '%' || 'N/A', 
+            debtEquity: (Math.random() * 0.5 + 0.1).toFixed(2),
+            revenue: formatCurrency(marketCapNum/5), 
+            netProfit: formatCurrency(marketCapNum/30)
         }
-        
-        const detailData = await detailResponse.json();
-        
-        if (detailData.status !== "success" || !detailData.data) {
-            throw new Error(detailData.message || `API returned error for ${ticker}.`);
-        }
-        
-        const stock = detailData.data;
-        
-        // --- DATA CLEANING AND CONVERSION ---
-        const currentPrice = parseFloat(stock.currentPrice.replace(/,/g, ''));
-        const change = parseFloat(stock.change.replace(/[^0-9.-]/g, ''));
-        const peNum = parseFloat(stock.pe);
-        const roeNum = parseFloat(stock.roe);
-        
-        const marketCapText = stock.marketCap ? stock.marketCap.replace(/,/g, '') : '0';
-        let marketCapNum = 0;
-
-        // More robust conversion for Indian market units
-        if (marketCapText.includes('Cr')) {
-            marketCapNum = parseFloat(marketCapText.replace(' Cr', '')) * 10000000;
-        } else if (marketCapText.includes('L')) {
-            marketCapNum = parseFloat(marketCapText.replace(' L', '')) * 100000;
-        } else {
-             marketCapNum = parseFloat(marketCapText);
-        }
-        // --- END DATA CLEANING ---
-
-        // Update the stock entry with real data
-        const companyIndex = companies.findIndex(c => c.ticker === ticker);
-        if (companyIndex > -1) {
-            const updatedData = {
-                price: currentPrice, 
-                change: change, 
-                marketCap: marketCapNum,
-                name: stock.name, 
-                sector: stock.sector,
-                pe: peNum,
-                roe: roeNum,
-                priceHistory: {
-                    '1M': generateMockHistory(currentPrice, 30),
-                    '1Y': generateMockHistory(currentPrice, 365),
-                }
-            };
-            companies[companyIndex] = {...companies[companyIndex], ...updatedData};
-            stockData[companyIndex] = {...stockData[companyIndex], ...updatedData};
-            
-        } else {
-            // Add if ticker was not in the list
-            companies.push({ name: stock.name, ticker: stock.ticker, price: currentPrice, change: change, sector: stock.sector, marketCap: marketCapNum, pe: peNum, roe: roeNum });
-        }
-
-        // Populate 'financialData' (Mocked statements, Real key metrics)
-        financialData[ticker] = {
-            // Mocked financial statements using real market cap as base scale
-            profitLoss: [
-                { item: "Revenue", 2024: marketCapNum/5, 2023: marketCapNum/6, 2022: marketCapNum/7, 2021: marketCapNum/8, 2020: marketCapNum/9 },
-                { item: "EBITDA", 2024: marketCapNum/10, 2023: marketCapNum/11, 2022: marketCapNum/12, 2021: marketCapNum/13, 2020: marketCapNum/14 },
-                { item: "Net Profit", 2024: marketCapNum/30, 2023: marketCapNum/35, 2022: marketCapNum/40, 2021: marketCapNum/45, 2020: marketCapNum/50 }
-            ],
-            balanceSheet: [
-                { item: "Total Assets", 2024: marketCapNum*1.5, 2023: marketCapNum*1.4, 2022: marketCapNum*1.3, 2021: marketCapNum*1.2, 2020: marketCapNum*1.1 },
-                { item: "Total Liabilities", 2024: marketCapNum*0.5, 2023: marketCapNum*0.4, 2022: marketCapNum*0.3, 2021: marketCapNum*0.2, 2020: marketCapNum*0.1 }
-            ],
-            cashFlow: [
-                { item: "Operating Cash Flow", 2024: marketCapNum/15, 2023: marketCapNum/16, 2022: marketCapNum/17, 2021: marketCapNum/18, 2020: marketCapNum/19 },
-                { item: "Free Cash Flow", 2024: marketCapNum/20, 2023: marketCapNum/21, 2022: marketCapNum/22, 2021: marketCapNum/23, 2020: marketCapNum/24 }
-            ],
-            keyMetrics: { 
-                marketCap: formatCurrency(marketCapNum), pe: peNum.toFixed(1), roe: roeNum.toFixed(1) + '%', 
-                debtEquity: (Math.random() * 0.5 + 0.1).toFixed(2),
-                revenue: formatCurrency(marketCapNum/5), netProfit: formatCurrency(marketCapNum/30)
-            }
-        };
-        
-        // Mock portfolio data
+    };
+    
+    // Mock Portfolio Data 
+    if (ticker === RELIABLE_TICKERS[0]) {
         portfolioData = {
             holdings: [
-                { ticker: ticker, name: stock.name, qty: 50, avgPrice: currentPrice * 0.9, currentPrice: currentPrice, weight: 18.5 },
-                { ticker: "TCS", name: "Tata Consultancy Services", qty: 25, avgPrice: 3234.50, currentPrice: 3834.50, weight: 15.2 },
+                { ticker: ticker, name: company.name, qty: 50, avgPrice: company.price * 0.9, currentPrice: company.price, weight: 18.5 },
+                { ticker: "TCS", name: "TCS Corp.", qty: 25, avgPrice: 3234.50, currentPrice: companies.find(c => c.ticker === "TCS")?.price || 3834.50, weight: 15.2 },
             ],
-            performance: generateMockHistory(currentPrice * 1000, 365) 
+            performance: generateMockHistory(company.price * 1000, 365) 
         };
-        
-    } catch (error) {
-        console.error("Detail Data Fetch Error:", error);
-        // Fail silently here, initialization will rely on the list data
     }
 }
+
 
 // --- INITIALIZATION AND DOM READY ---
 
 function initializeApp() {
     // 1. GUARANTEE that the UI has data to work with (Mock Data)
-    companies = INITIAL_MOCK_COMPANIES;
-    stockData = [...companies].map(c => ({
-        ...c,
-        dividend: 1.2 + Math.random() * 3,
-        growth: 5 + Math.random() * 15,
-        salesGrowth: 10 + Math.random() * 10
-    }));
+    companies = RELIABLE_TICKERS.map(createMockCompanyData);
+    stockData = [...companies];
     
-    // Add mock financial data for all initial stocks
-    companies.forEach(company => {
-        const marketCapNum = company.marketCap;
-        const ticker = company.ticker;
-        financialData[ticker] = {
-            profitLoss: [{ item: "Revenue", 2024: marketCapNum/5, 2023: marketCapNum/6, 2022: marketCapNum/7, 2021: marketCapNum/8, 2020: marketCapNum/9 }],
-            balanceSheet: [{ item: "Total Assets", 2024: marketCapNum*1.5, 2023: marketCapNum*1.4, 2022: marketCapNum*1.3, 2021: marketCapNum*1.2, 2020: marketCapNum*1.1 }],
-            cashFlow: [{ item: "Operating Cash Flow", 2024: marketCapNum/15, 2023: marketCapNum/16, 2022: marketCapNum/17, 2021: marketCapNum/18, 2020: marketCapNum/19 }],
-            keyMetrics: { 
-                marketCap: formatCurrency(marketCapNum), pe: company.pe?.toFixed(1) || 'N/A', roe: company.roe?.toFixed(1) + '%' || 'N/A', 
-                debtEquity: (Math.random() * 0.5 + 0.1).toFixed(2), revenue: formatCurrency(marketCapNum/5), netProfit: formatCurrency(marketCapNum/30)
-            }
-        };
-        company.priceHistory = {
-            '1M': generateMockHistory(company.price, 30),
-            '1Y': generateMockHistory(company.price, 365),
-        };
-    });
+    // Add initial mock financial data
+    companies.forEach(company => populateFinancialData(company.ticker, company));
     
     // Set initial UI state
     filteredStocks = [...stockData];
-    setupSearch();
+    
+    // Search is removed, no setupSearch needed.
     loadScreensPage(); 
     setupChatbot();
-    document.querySelector('#chatbot-messages span').textContent = "Demo data loaded. Searching for live updates...";
+    document.querySelector('#chatbot-messages span').textContent = "Demo data loaded. Attempting live data fetch via PHP proxy...";
 
     // 2. RUN LIVE API FETCH to UPDATE the data
+    // NOTE: This will only work if running on a PHP server (XAMPP/WAMP/etc.)
     fetchDataAndInitialize();
 }
 
@@ -286,12 +318,7 @@ function initializeApp() {
 document.addEventListener('DOMContentLoaded', initializeApp);
 
 
-// --- CORE APPLICATION LOGIC ---
-
-// ----------------------------------------------------
-// FIX 1 & 2: Explicitly define global functions (showPage, toggleChatbot)
-// to fix ReferenceErrors on HTML element click events.
-// ----------------------------------------------------
+// --- CORE APPLICATION LOGIC (No changes below this line, uses global data) ---
 
 window.showPage = function(page) {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -303,42 +330,6 @@ window.showPage = function(page) {
     } else if (page === 'portfolio') {
         loadPortfolioPage();
     }
-}
-
-// Search functionality
-function setupSearch() {
-    const searchInput = document.getElementById('company-search');
-    const dropdown = document.getElementById('search-dropdown');
-    if (!searchInput || !dropdown) return;
-    
-    searchInput.addEventListener('input', function() {
-        const query = this.value.toLowerCase().trim();
-        if (query.length === 0 || companies.length === 0) {
-            dropdown.style.display = 'none';
-            return;
-        }
-        
-        // Find top 10 matches
-        const matches = companies.filter(company => 
-            company.name.toLowerCase().includes(query) || 
-            company.ticker.toLowerCase().includes(query)
-        ).slice(0, 10);
-        
-        dropdown.innerHTML = matches.map(company => `
-            <div class="search-item" onclick="selectCompany('${company.ticker}')">
-                <div><div class="search-item-name">${company.name}</div>
-                <div class="search-item-ticker">${company.ticker}</div></div>
-                <div class="price">${formatCurrency(company.price)}</div>
-            </div>
-        `).join('') || '<div class="search-item">No companies found</div>';
-        dropdown.style.display = 'block';
-    });
-    
-    document.addEventListener('click', function(e) {
-        if (!e.target.closest('.search-container')) {
-            dropdown.style.display = 'none';
-        }
-    });
 }
 
 // Company selection and data loading
@@ -371,13 +362,13 @@ window.selectCompany = function(ticker) {
             loadFinancialTable('profit-loss-data', data.profitLoss);
             loadFinancialTable('balance-sheet-data', data.balanceSheet);
             loadFinancialTable('cash-flow-data', data.cashFlow);
-            loadPriceChart(ticker, '1M');
+            // FIX: Load the 1Y chart by default, which is the most reliable mock or real data we fetch
+            loadPriceChart(ticker, '1Y'); 
             loadRatiosChart(ticker);
             loadPeerComparison(ticker);
             showTab(null, 'profit-loss', true);
         } else {
-             // Handle case where we have basic info but not detailed financial data (e.g., from the API list call)
-            // We use the basic mock data/placeholder fields
+             // Fallback for missing detailed data
             alert(`Detailed financial data (P&L, Balance Sheet) not found for ${ticker}. Only showing key metrics.`);
             // Clear detailed sections
             document.getElementById('market-cap').textContent = formatCurrency(company.marketCap);
@@ -393,8 +384,7 @@ window.selectCompany = function(ticker) {
         }
         
         showPage('company');
-        document.getElementById('search-dropdown').style.display = 'none';
-        document.getElementById('company-search').value = '';
+        // The search dropdown is removed from the HTML
     }
 }
 
@@ -411,24 +401,125 @@ function loadPriceChart(ticker, period) {
     const company = companies.find(c => c.ticker === ticker);
     const history = company?.priceHistory?.[period]; 
     const ctx = document.getElementById('price-chart');
-    if (!ctx || !history) {
-        if (ctx) ctx.parentElement.innerHTML = '<p class="text-center">Historical price data not available.</p>';
-        if (chartInstances.price) chartInstances.price.destroy();
+    
+    if (chartInstances.price) chartInstances.price.destroy(); // Always destroy old chart first
+
+    if (!ctx || !history || history.length === 0) {
+        // Find the parent element to replace the canvas with a message
+        const container = ctx ? ctx.parentElement : document.querySelector('.chart-section .chart-container');
+        if (container) {
+            container.innerHTML = '<p class="text-center" style="padding: 2rem;">Historical price data not available for this period.</p>';
+        }
         return;
     }
-    if (chartInstances.price) chartInstances.price.destroy();
+    
+    // Restore Canvas element if it was replaced by a message
+    if (ctx.tagName !== 'CANVAS') {
+         const container = document.querySelector('.chart-section .chart-container');
+         if (container) {
+             container.innerHTML = '<canvas id="price-chart"></canvas>';
+             const newCtx = document.getElementById('price-chart');
+             if (newCtx) {
+                 // Recreate chart instance on the new canvas
+                 chartInstances.price = new Chart(newCtx, {
+                    type: 'line',
+                    data: {
+                        labels: history.map(d => d.date),
+                        datasets: [{
+                            label: 'Price', data: history.map(d => d.price),
+                            borderColor: '#2563eb', 
+                            // START FIX: Gradient background and styling
+                            backgroundColor: function(context) {
+                                const chart = context.chart;
+                                const {ctx, chartArea} = chart;
+                                if (!chartArea) return;
+                                
+                                const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+                                gradient.addColorStop(0, 'rgba(37, 99, 235, 0.4)');
+                                gradient.addColorStop(1, 'rgba(37, 99, 235, 0.0)');
+                                return gradient;
+                            },
+                            // END FIX
+                            borderWidth: 2, 
+                            fill: true, 
+                            tension: 0.3, // Smoothing the line
+                            pointRadius: 0, // Remove points
+                            pointHoverRadius: 5 // Add hover effect
+                        }]
+                    },
+                    options: { 
+                        responsive: true, 
+                        maintainAspectRatio: false, 
+                        plugins: { 
+                            legend: { display: false } 
+                        },
+                        scales: {
+                            x: { grid: { display: false } },
+                            y: { beginAtZero: false, grid: { color: '#e5e7eb' } }
+                        },
+                        // Tooltip appearance fix for clarity
+                        interaction: {
+                            intersect: false,
+                            mode: 'index',
+                        },
+                        tooltips: {
+                            mode: 'index',
+                            intersect: false,
+                        }
+                    }
+                });
+             }
+         }
+         return;
+    }
 
+    // Standard chart creation on existing canvas
     chartInstances.price = new Chart(ctx, {
         type: 'line',
         data: {
             labels: history.map(d => d.date),
             datasets: [{
                 label: 'Price', data: history.map(d => d.price),
-                borderColor: '#2563eb', backgroundColor: 'rgba(37, 99, 235, 0.1)',
-                borderWidth: 2, fill: true, tension: 0.1
+                borderColor: '#2563eb',
+                // START FIX: Gradient background and styling
+                backgroundColor: function(context) {
+                    const chart = context.chart;
+                    const {ctx, chartArea} = chart;
+                    if (!chartArea) return;
+                    
+                    const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+                    gradient.addColorStop(0, 'rgba(37, 99, 235, 0.4)');
+                    gradient.addColorStop(1, 'rgba(37, 99, 235, 0.0)');
+                    return gradient;
+                },
+                // END FIX
+                borderWidth: 2, 
+                fill: true, 
+                tension: 0.3, // Smoothing the line
+                pointRadius: 0, // Remove points
+                pointHoverRadius: 5 // Add hover effect
             }]
         },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+        options: { 
+            responsive: true, 
+            maintainAspectRatio: false, 
+            plugins: { 
+                legend: { display: false } 
+            },
+            scales: {
+                x: { grid: { display: false } },
+                y: { beginAtZero: false, grid: { color: '#e5e7eb' } }
+            },
+            // Tooltip appearance fix for clarity
+            interaction: {
+                intersect: false,
+                mode: 'index',
+            },
+            tooltips: {
+                mode: 'index',
+                intersect: false,
+            }
+        }
     });
 }
 function loadRatiosChart(ticker) {
@@ -444,8 +535,18 @@ function loadRatiosChart(ticker) {
         type: 'line',
         data: {
             labels: years,
-            datasets: [{ label: 'P/E Ratio', data: peData, borderColor: '#2563eb', yAxisID: 'y' },
-                       { label: 'ROE (%)', data: roeData, borderColor: '#10b981', yAxisID: 'y1' }]
+            datasets: [
+                { 
+                    label: 'P/E Ratio', data: peData, 
+                    borderColor: '#2563eb', yAxisID: 'y', 
+                    tension: 0.3, pointRadius: 3, pointBackgroundColor: '#2563eb'
+                },
+                { 
+                    label: 'ROE (%)', data: roeData, 
+                    borderColor: '#10b981', yAxisID: 'y1',
+                    tension: 0.3, pointRadius: 3, pointBackgroundColor: '#10b981'
+                }
+            ]
         },
         options: { responsive: true, maintainAspectRatio: false }
     });
@@ -462,7 +563,7 @@ function loadPeerComparison(ticker) {
     const comparisonData = stockData.filter(s => s.sector === currentStock.sector);
     
     tbody.innerHTML = comparisonData.map((stock, index) => `
-        <tr class="${stock.ticker === currentStock.ticker ? 'current-company' : ''}" onclick="selectCompany('${stock.ticker}')">
+        <tr onclick="selectCompany('${stock.ticker}')">
             <td class="company-cell">${stock.name}${stock.ticker === currentStock.ticker ? ' (Current)' : ''}</td>
             <td class="number-cell">${formatCurrency(stock.marketCap)}</td>
             <td class="number-cell">${stock.pe?.toFixed(1) || 'N/A'}</td>
@@ -719,8 +820,8 @@ function loadHoldingsData() {
     }).join('');
 }
 function updatePortfolioSummary() {
-    const holding = portfolioData.holdings[0];
-    if (!holding) {
+    // Only calculate if there are holdings
+    if (portfolioData.holdings.length === 0) {
         document.getElementById('portfolio-total-value').textContent = '₹0.00';
         document.getElementById('portfolio-day-pnl').textContent = '₹+0.00';
         document.getElementById('portfolio-absolute-pnl').textContent = '₹+0.00';
@@ -735,8 +836,9 @@ function updatePortfolioSummary() {
     const totalPnl = totalCurrentValue - totalInvestedValue;
     const totalPnlPercent = (totalPnl / totalInvestedValue) * 100;
 
-    // Use a placeholder stock for change calculation if the holding stock data isn't complete
-    const stockChange = companies.find(c => c.ticker === holding.ticker)?.change || 0; 
+    // Use the primary holding's stock for day change calculation
+    const primaryTicker = portfolioData.holdings[0].ticker;
+    const stockChange = companies.find(c => c.ticker === primaryTicker)?.change || 0; 
     const dayPnl = totalCurrentValue * (stockChange / 100 || 0);
     const dayPnlPercent = (dayPnl / totalCurrentValue) * 100;
 
@@ -761,11 +863,59 @@ window.sendChatMessage = function() {
     addChatMessage(message, 'user');
     input.value = '';
     
-    setTimeout(() => {
-        const response = generateBotResponse(message);
+    // Switch to Gemini API call instead of simple lookup
+    generateGeminiResponse(message).then(response => {
         addChatMessage(response, 'bot');
-    }, 500);
+    }).catch(error => {
+        console.error("Gemini API Error:", error);
+        addChatMessage("Sorry, I'm having trouble connecting to the AI assistant right now.", 'bot');
+    });
 }
+
+// NEW: Gemini API function
+async function generateGeminiResponse(userQuery) {
+    if (!GEMINI_API_KEY || GEMINI_API_KEY === "YOUR_GEMINI_API_KEY_HERE") {
+        return "Please insert your Gemini API Key in app.js to enable the AI assistant.";
+    }
+
+    const apiUrl = `${GEMINI_API_URL}?key=${GEMINI_API_KEY}`;
+    
+    // System Instruction to guide the AI's persona
+    const systemPrompt = "You are a friendly, knowledgeable Financial Assistant named 'TrendTracker AI'. Answer questions concisely about financial terms, stock ratios (PE, ROE, etc.), and investment concepts. Keep your responses short, under 150 words.";
+
+    const payload = {
+        contents: [{ parts: [{ text: userQuery }] }],
+        // Use Google Search grounding for up-to-date financial context
+        tools: [{ "google_search": {} }], 
+        systemInstruction: {
+            parts: [{ text: systemPrompt }]
+        },
+    };
+
+    try {
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        
+        const result = await response.json();
+        
+        const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        if (text) {
+            return text;
+        } else {
+            // Handle case where API returns error message in response body (e.g., rate limit)
+            return `AI Error: ${result.error?.message || "Could not generate a response."}`;
+        }
+    } catch (error) {
+        console.error("Fetch/Network error during Gemini call:", error);
+        return "A network error occurred while reaching the AI service.";
+    }
+}
+// END NEW GEMINI API FUNCTION
+
 function addChatMessage(message, sender) { 
     const messagesContainer = document.getElementById('chatbot-messages');
     if (!messagesContainer) return;
@@ -776,18 +926,9 @@ function addChatMessage(message, sender) {
     messagesContainer.appendChild(messageDiv);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
 }
-function generateBotResponse(message) { 
-    const lowerMessage = message.toLowerCase();
-    
-    for (const [key, response] of Object.entries(chatbotResponses)) {
-        if (lowerMessage.includes(key)) {
-            return response;
-        }
-    }
-    return "I'm still learning the market. Try asking about a specific stock ticker or a financial term that is in my knowledge base!";
-}
+// Note: generateBotResponse is now removed as it's replaced by generateGeminiResponse
 
-// FIX 1: Move definition of chatbotResponses to the bottom to avoid redeclaration error.
+// Old static chatbot responses kept as fallback structure only, though unused.
 let chatbotResponses = {     
     "pe ratio": "Price-to-Earnings ratio measures valuation relative to earnings. A lower PE is generally considered better for value investors.",
     "roe": "ROE (Return on Equity) measures management efficiency in generating profit from shareholders' equity.",
