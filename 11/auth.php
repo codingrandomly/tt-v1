@@ -7,7 +7,7 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// --- Logout Logic (Accessed via index.html?action=logout) ---
+// --- Logout Logic (Accessed via index.php?action=logout) ---
 // UNIT II: Query String (for action=logout)
 if (isset($_GET['action']) && $_GET['action'] === 'logout') {
     // Clear all session variables
@@ -16,18 +16,17 @@ if (isset($_GET['action']) && $_GET['action'] === 'logout') {
     // Destroy the session (Unit II)
     session_destroy();
     
-    // Redirect to the login page
+    // Redirect to the login page (or public index page)
     header('Location: login.php');
     exit;
 }
 
-// --- Mandatory Login Check Function ---
-// UNIT I: Conditional Statement - if else
-function require_login() {
-    if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
-        // If not logged in, redirect them immediately
-        header('Location: login.php');
-        exit;
-    }
+// --- Login Check Function (Kept for optional future use, but not actively used here) ---
+// This function is defined to check login status, but it DOES NOT enforce a redirect.
+// It is used by the index.php file to decide whether to show 'Login' or 'Logout'.
+function is_logged_in() {
+    return isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true;
 }
+
+// NOTE: The function require_login() has been completely removed to allow public access to index.php.
 ?>

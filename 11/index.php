@@ -1,8 +1,8 @@
 <?php
 // UNIT I: Server-Side Execution
-// This MUST be the first thing in the file to handle redirection before the HTML starts.
-require_once 'auth.php';
-require_login(); // UNIT I/II: Enforce login check
+// This MUST be the first thing in the file to ensure session_start() runs for the Logout link.
+require_once 'auth.php'; 
+// NOTE: The function require_login() has been REMOVED to allow public access.
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -28,12 +28,22 @@ require_login(); // UNIT I/II: Enforce login check
             </div>
             
             <div class="nav-menu">
-                <a href="#" onclick="showPage('home')">Home</a>
+                <a href="index.php" onclick="showPage('home')">Home</a>
                 <a href="#" onclick="showPage('screens')">Screens</a>
                 <a href="#" onclick="showPage('portfolio')">Portfolio</a>
                 <a href="#" onclick="showPage('news')">News</a>
                 <a href="#" onclick="showPage('tools')">Tools</a>
-                <a href="auth.php?action=logout">Logout</a> <!-- UNIT II: Logout via Query String -->
+                
+                <?php
+                // Display Logout or Login based on session state (Unit II: State Management)
+                if (isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true) {
+                    // Logged in: Show Logout button
+                    echo '<a href="auth.php?action=logout">Logout</a>'; 
+                } else {
+                    // Logged out: Show Login button
+                    echo '<a href="login.php">Login</a>';
+                }
+                ?>
             </div>
         </div>
     </nav>
@@ -43,22 +53,18 @@ require_login(); // UNIT I/II: Enforce login check
         <div class="hero-section">
             <div class="container">
                 <h1>Stock Analysis Made Simple</h1>
-                <p>Use our tools and AI Assistant to navigate the market.</p>
+                <p>Search, analyze, and screen stocks with powerful financial data.</p>
                 
-                <!-- NEW FEATURE: QUICK FILTER BUTTONS (Replaces Search) -->
-                <div class="quick-filter-container">
-                    <h2 class="quick-filter-title">Quick Analysis Jump</h2>
-                    <div class="quick-filter-buttons">
-                        <button class="quick-filter-btn" onclick="showPage('screens'); applyPresetFilter('large-cap')">
-                            <i class="fas fa-building"></i> Top 50 Large Caps
-                        </button>
-                        <button class="quick-filter-btn" onclick="showPage('screens'); applyPresetFilter('high-dividend')">
-                            <i class="fas fa-coins"></i> High Dividend Yield
-                        </button>
+                <!-- REINTRODUCED SEARCH FEATURE (Dropdown) -->
+                <div class="search-container">
+                    <div class="search-box">
+                        <i class="fas fa-search"></i>
+                        <input type="text" id="company-search" placeholder="Search for a company by name or ticker..." autocomplete="off">
+                        <div id="search-dropdown" class="search-dropdown"></div>
                     </div>
                 </div>
-                <!-- END NEW FEATURE -->
-
+                <!-- END SEARCH FEATURE -->
+                
             </div>
         </div>
 

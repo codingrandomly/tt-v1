@@ -106,10 +106,12 @@ function createMockCompanyData(ticker) {
 }
 
 
-// --- PHP PROXY CALL FUNCTION (Fincrux) ---
-async function fetchViaProxy(endpoint, params = {}) {
-    const urlParams = new URLSearchParams({ endpoint: endpoint, ...params }).toString();
-    const url = `${PROXY_URL}?${urlParams}`;
+// --- FINCRUX DATA FETCHING LOGIC (via PHP Proxy) ---
+
+async function fetchFincrux(endpoint, params = {}) {
+    // Add API key to query parameters
+    const urlParams = new URLSearchParams({ ...params }).toString();
+    const url = `${PROXY_URL}?endpoint=${endpoint}&${urlParams}`;
     
     try {
         const response = await fetch(url, { headers: API_HEADERS });
@@ -125,14 +127,13 @@ async function fetchViaProxy(endpoint, params = {}) {
     }
 }
 
-// Rewriting API fetch functions to use the PHP proxy
-async function fetchQuote(ticker) { return fetchViaProxy('quote', { ticker: ticker }); }
+async function fetchQuote(ticker) { return fetchFincrux('quote', { ticker: ticker }); }
 async function fetchKeyMetrics(ticker) { 
-    const data = await fetchViaProxy('metrics', { ticker: ticker, period: 'annual' });
+    const data = await fetchFincrux('metrics', { ticker: ticker, period: 'annual' });
     return data ? data : []; 
 }
 async function fetchHistoricalData(ticker) {
-    const data = await fetchViaProxy('history', { ticker: ticker, interval: '1d', limit: 250 });
+    const data = await fetchFincrux('history', { ticker: ticker, interval: '1d', limit: 250 });
     return data; 
 }
 
@@ -141,19 +142,17 @@ async function fetchDataAndInitialize() {
     try {
         document.querySelector('#chatbot-messages span').textContent = "Attempting to fetch live data (via PHP proxy)...";
         
-        let liveTickers = [];
+        let liveTickers = RELIABLE_TICKERS; // Start with the known list
         let successCount = 0;
 
         // 1. Fetch Master Stock List (List of all tickers)
-        const allSymbols = await fetchViaProxy('stock/list');
+        const allSymbols = await fetchFincrux('stock/list');
 
         if (allSymbols && allSymbols.length > 0) {
             liveTickers = allSymbols
                 .filter(s => s.exchange === 'NSE' || s.exchange === 'BSE')
                 .slice(0, 50)
                 .map(s => s.symbol);
-        } else {
-            liveTickers = RELIABLE_TICKERS;
         }
 
         document.querySelector('#chatbot-messages span').textContent = `Fetching quotes & metrics for ${liveTickers.length} stocks...`;
@@ -230,6 +229,7 @@ async function fetchDataAndInitialize() {
         // 5. Final initialization and display update
         companies.forEach(company => populateFinancialData(company.ticker, company));
         
+        setupSearch(); // <-- FIX: Reinstated and fixed setupSearch
         loadScreensPage(); 
         
         document.querySelector('#chatbot-messages span').textContent = 
@@ -244,6 +244,7 @@ async function fetchDataAndInitialize() {
         stockData = [...companies];
         filteredStocks = [...stockData];
         companies.forEach(company => populateFinancialData(company.ticker, company));
+        setupSearch(); // <-- FIX: Reinstated and fixed setupSearch
         loadScreensPage(); 
     }
 }
@@ -304,13 +305,13 @@ function initializeApp() {
     // Set initial UI state
     filteredStocks = [...stockData];
     
-    // Search is removed, no setupSearch needed.
+    // Call setupSearch after data initialization
+    setupSearch(); 
     loadScreensPage(); 
     setupChatbot();
-    document.querySelector('#chatbot-messages span').textContent = "Demo data loaded. Attempting live data fetch via PHP proxy...";
+    document.querySelector('#chatbot-messages span').textContent = "Demo data loaded. Searching for live updates...";
 
     // 2. RUN LIVE API FETCH to UPDATE the data
-    // NOTE: This will only work if running on a PHP server (XAMPP/WAMP/etc.)
     fetchDataAndInitialize();
 }
 
@@ -330,6 +331,51 @@ window.showPage = function(page) {
     } else if (page === 'portfolio') {
         loadPortfolioPage();
     }
+}
+
+// Search functionality
+function setupSearch() {
+    const searchInput = document.getElementById('company-search');
+    const dropdown = document.getElementById('search-dropdown');
+    
+    // CRITICAL FIX: Verify elements exist before attaching listeners
+    if (!searchInput || !dropdown) {
+        console.error("Search input elements not found. Cannot initialize search.");
+        return;
+    }
+    
+    // FIX: Attach event listener directly to input for maximum reliability
+    searchInput.addEventListener('input', function() {
+        const query = this.value.toLowerCase().trim();
+        // Check if companies array is empty OR query is empty
+        if (query.length === 0 || companies.length === 0) {
+            dropdown.style.display = 'none';
+            return;
+        }
+        
+        // Find top 10 matches
+        const matches = companies.filter(company => 
+            // FIX: Added checks to ensure .name and .ticker exist before calling .toLowerCase()
+            (company.name && company.name.toLowerCase().includes(query)) || 
+            (company.ticker && company.ticker.toLowerCase().includes(query))
+        ).slice(0, 10);
+        
+        dropdown.innerHTML = matches.map(company => `
+            <div class="search-item" onclick="selectCompany('${company.ticker}')">
+                <div><div class="search-item-name">${company.name}</div>
+                <div class="search-item-ticker">${company.ticker}</div></div>
+                <div class="price">${formatCurrency(company.price)}</div>
+            </div>
+        `).join('') || '<div class="search-item">No companies found</div>';
+        dropdown.style.display = 'block';
+    });
+    
+    // Close dropdown when clicking outside
+    document.addEventListener('click', function(e) {
+        if (!e.target.closest('.search-container')) {
+            dropdown.style.display = 'none';
+        }
+    });
 }
 
 // Company selection and data loading
@@ -384,7 +430,7 @@ window.selectCompany = function(ticker) {
         }
         
         showPage('company');
-        // The search dropdown is removed from the HTML
+        // The search dropdown is now handled by document.addEventListener('click')
     }
 }
 
