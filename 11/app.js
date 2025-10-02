@@ -137,12 +137,29 @@ async function fetchHistoricalData(ticker) {
     return data; 
 }
 
+// NEW: Global Loading Toggle
+function toggleLoading(show) {
+    const overlay = document.getElementById('loading-overlay');
+    if (overlay) {
+        const icon = overlay.querySelector('i');
+        if (icon) {
+            if (show) {
+                icon.classList.add('fa-spin');
+            } else {
+                icon.classList.remove('fa-spin');
+            }
+        }
+        overlay.style.display = show ? 'flex' : 'none';
+    }
+}
+
 
 async function fetchDataAndInitialize() {
     try {
+        toggleLoading(true); 
         document.querySelector('#chatbot-messages span').textContent = "Attempting to fetch live data (via PHP proxy)...";
         
-        let liveTickers = RELIABLE_TICKERS; // Start with the known list
+        let liveTickers = RELIABLE_TICKERS; 
         let successCount = 0;
 
         // 1. Fetch Master Stock List (List of all tickers)
@@ -225,11 +242,10 @@ async function fetchDataAndInitialize() {
             };
         }
 
-
         // 5. Final initialization and display update
         companies.forEach(company => populateFinancialData(company.ticker, company));
         
-        setupSearch(); // <-- FIX: Reinstated and fixed setupSearch
+        setupSearch(); 
         loadScreensPage(); 
         
         document.querySelector('#chatbot-messages span').textContent = 
@@ -244,8 +260,10 @@ async function fetchDataAndInitialize() {
         stockData = [...companies];
         filteredStocks = [...stockData];
         companies.forEach(company => populateFinancialData(company.ticker, company));
-        setupSearch(); // <-- FIX: Reinstated and fixed setupSearch
+        setupSearch(); 
         loadScreensPage(); 
+    } finally {
+        toggleLoading(false); 
     }
 }
 
@@ -305,27 +323,44 @@ function initializeApp() {
     // Set initial UI state
     filteredStocks = [...stockData];
     
-    // Call setupSearch after data initialization
+    // Call setup functions
     setupSearch(); 
     loadScreensPage(); 
     setupChatbot();
+    setupModalLogin(); 
+    updateMarketSummary(); // <-- NEW CALL for widget data
     document.querySelector('#chatbot-messages span').textContent = "Demo data loaded. Searching for live updates...";
 
     // 2. RUN LIVE API FETCH to UPDATE the data
     fetchDataAndInitialize();
+    
+    // NEW: Set initial active state for Home link
+    window.showPage('home');
 }
 
 
 document.addEventListener('DOMContentLoaded', initializeApp);
 
 
-// --- CORE APPLICATION LOGIC (No changes below this line, uses global data) ---
+// --- CORE APPLICATION LOGIC (Includes Active Nav State) ---
 
 window.showPage = function(page) {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.getElementById(page === 'home' ? 'homepage' : page + '-page').classList.add('active');
     currentPage = page;
     
+    // --- NEW: Handle active navigation state ---
+    document.querySelectorAll('.nav-menu a').forEach(a => a.classList.remove('active-nav'));
+    // Select based on onclick attribute matching the page name (e.g., 'screens')
+    const targetLink = document.querySelector(`.nav-menu a[onclick*="'${page}'"]`);
+    if (targetLink) {
+         targetLink.classList.add('active-nav');
+    } else if (page === 'home') {
+         // Handle the "Home" link which is a special case in your HTML structure
+         document.querySelector('.nav-menu a[href="index.php"]').classList.add('active-nav');
+    }
+    // --- END NEW ---
+
     if (page === 'screens') {
         loadScreensPage();
     } else if (page === 'portfolio') {
@@ -392,8 +427,14 @@ window.selectCompany = function(ticker) {
         
         const changeElement = document.getElementById('company-change');
         const change = company.change || 0;
-        changeElement.textContent = `${change > 0 ? '+' : ''}${change.toFixed(2)}%`;
+        
+        // NEW: Indicator Icon Logic
+        const iconClass = change >= 0 ? 'fa-caret-up' : 'fa-caret-down';
+        const iconHtml = `<i class="fas ${iconClass} change-indicator"></i>`;
+
+        changeElement.innerHTML = `${iconHtml} ${change > 0 ? '+' : ''}${change.toFixed(2)}%`; // Use innerHTML to inject the icon
         changeElement.className = `change ${change >= 0 ? 'positive' : 'negative'}`;
+
 
         if (data) {
             // Update key metrics
@@ -656,7 +697,7 @@ window.showTab = function(event, tabName, reset = false) {
 // Screens page logic
 function loadScreensPage() {
     if (stockData.length === 0) {
-        document.getElementById('stock-table-body').innerHTML = '<tr><td colspan="5" class="text-center">No Stock Data Available.</td></tr>';
+        document.getElementById('stock-table-body').innerHTML = '<tr><td colspan="8" class="text-center">No Stock Data Available.</td></tr>'; // colspan updated
         return;
     }
     applyPresetFilter('all');
@@ -693,7 +734,7 @@ window.applyCustomFilter = function() {
     try {
         const filtered = stockData.filter(stock => {
             const safeStock = {
-                MarketCap: stock.marketCap, PE: stock.pe, ROE: stock.roe, Price: stock.price, Dividend: stock.dividend, Growth: stock.growth
+                MarketCap: stock.marketCap, PE: stock.pe, ROE: stock.roe, Price: stock.price, Dividend: stock.dividend, Growth: stock.growth, SalesGrowth: stock.salesGrowth
             };
             let evalQuery = query
                 .replace(/MarketCap/gi, safeStock.MarketCap)
@@ -702,6 +743,7 @@ window.applyCustomFilter = function() {
                 .replace(/Price/gi, safeStock.Price)
                 .replace(/Dividend/gi, safeStock.Dividend)
                 .replace(/Growth/gi, safeStock.Growth)
+                .replace(/SalesGrowth/gi, safeStock.SalesGrowth)
                 .replace(/AND/gi, '&&')
                 .replace(/OR/gi, '||');
             
@@ -736,13 +778,13 @@ function evaluateQuery(query, stock) {
     }
 } 
 
-// Display stocks in table
+// Display stocks in table (UPDATED for new columns)
 function displayStocks(stocks) {
     const tbody = document.getElementById('stock-table-body');
     if (!tbody) return;
     
     if (stocks.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-center">No results matched the filter criteria.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center">No results matched the filter criteria.</td></tr>'; // colspan updated
         document.getElementById('results-count').textContent = `0 companies found`;
         return;
     }
@@ -757,6 +799,9 @@ function displayStocks(stocks) {
             <td class="number-cell">${formatCurrency(stock.marketCap)}</td>
             <td class="number-cell">${stock.pe?.toFixed(1) || 'N/A'}</td>
             <td class="number-cell">${stock.roe?.toFixed(1) || 'N/A'}%</td>
+            <td class="number-cell">${stock.dividend?.toFixed(1) || 'N/A'}%</td>
+            <td class="number-cell ${stock.growth > 15 ? 'positive' : ''}">${stock.growth?.toFixed(1) || 'N/A'}%</td>
+            <td class="number-cell ${stock.salesGrowth > 15 ? 'positive' : ''}">${stock.salesGrowth?.toFixed(1) || 'N/A'}%</td>
             <td class="number-cell">${formatCurrency(stock.price)}</td>
         </tr>
     `).join('');
@@ -899,6 +944,31 @@ function updatePortfolioSummary() {
     document.getElementById('portfolio-absolute-pnl').parentElement.querySelector('.portfolio-change').className = `portfolio-change ${totalPnl >= 0 ? 'positive' : 'negative'}`;
 }
 
+// NEW: Market Summary Update
+function updateMarketSummary() {
+    // Mock data for Sensex and Nifty (using random changes to simulate market)
+    const sensexBase = 74000;
+    const niftyBase = 22500;
+
+    const sensexChangeRaw = (Math.random() * 1.5 - 0.75); // -0.75% to +0.75%
+    const niftyChangeRaw = (Math.random() * 1.2 - 0.6);   // -0.6% to +0.6%
+
+    const sensexPrice = sensexBase * (1 + sensexChangeRaw / 100);
+    const niftyPrice = niftyBase * (1 + niftyChangeRaw / 100);
+
+    const formatChange = (change) => `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`;
+    const getColorClass = (change) => change >= 0 ? 'positive' : 'negative';
+
+    document.getElementById('index-sensex-price').textContent = sensexPrice.toFixed(2);
+    document.getElementById('index-sensex-change').textContent = formatChange(sensexChangeRaw);
+    document.getElementById('index-sensex-change').className = `change ${getColorClass(sensexChangeRaw)}`;
+
+    document.getElementById('index-nifty-price').textContent = niftyPrice.toFixed(2);
+    document.getElementById('index-nifty-change').textContent = formatChange(niftyChangeRaw);
+    document.getElementById('index-nifty-change').className = `change ${getColorClass(niftyChangeRaw)}`;
+}
+
+
 // Chatbot functionality
 window.toggleChatbot = function() { document.getElementById('chatbot-widget')?.classList.toggle('collapsed'); }
 window.handleChatInput = function(event) { if (event.key === 'Enter') sendChatMessage(); }
@@ -985,3 +1055,72 @@ let chatbotResponses = {
 };
 
 function setupChatbot() { document.getElementById('chatbot-widget')?.classList.add('collapsed'); }
+
+// --- NEW MODAL LOGIN JAVASCRIPT LOGIC ---
+
+/**
+ * Opens the login modal and prevents the default link action.
+ */
+window.openLoginModal = function(event) {
+    event.preventDefault(); // Stop the link from trying to navigate
+    document.getElementById('login-modal').classList.add('is-visible');
+    // Clear any previous error messages
+    document.getElementById('modal-error-message').style.display = 'none';
+}
+
+/**
+ * Closes the login modal.
+ */
+window.closeLoginModal = function() {
+    document.getElementById('login-modal').classList.remove('is-visible');
+}
+
+/**
+ * Attaches the AJAX submission handler to the login form after the DOM loads.
+ */
+function setupModalLogin() {
+    const form = document.getElementById('login-form');
+    if (!form) return;
+
+    form.addEventListener('submit', async function(e) {
+        e.preventDefault(); // Stop default form submission/page reload
+        
+        const username = document.getElementById('modal-username').value;
+        const password = document.getElementById('modal-password').value;
+        const errorMessageElement = document.getElementById('modal-error-message');
+
+        try {
+            const response = await fetch('login.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json' // Send data as JSON
+                },
+                body: JSON.stringify({ username: username, password: password }) // Send credentials as JSON payload
+            });
+
+            const result = await response.json();
+
+            if (result.status === 'success') {
+                // Successful login: Close modal and refresh the page to update the navbar
+                closeLoginModal();
+                window.location.reload(); 
+            } else {
+                // Failed login: Display error message
+                errorMessageElement.textContent = result.message || 'Login failed due to an unknown error.';
+                errorMessageElement.style.display = 'block';
+            }
+        } catch (error) {
+            console.error('Network or Parse Error during login:', error);
+            errorMessageElement.textContent = 'A network error occurred. Could not connect to the server.';
+            errorMessageElement.style.display = 'block';
+        }
+    });
+    
+    // Close modal if user clicks outside of it
+    window.addEventListener('click', function(event) {
+        const modal = document.getElementById('login-modal');
+        if (event.target === modal) {
+            closeLoginModal();
+        }
+    });
+}

@@ -16,8 +16,8 @@ if (isset($_GET['action']) && $_GET['action'] === 'logout') {
     // Destroy the session (Unit II)
     session_destroy();
     
-    // Redirect to the login page (or public index page)
-    header('Location: login.php');
+    // CORRECTED REDIRECT: Redirect to the index page instead of the login endpoint
+    header('Location: index.php');
     exit;
 }
 

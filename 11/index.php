@@ -10,16 +10,17 @@ require_once 'auth.php';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TrendTracker - Stock Screening & Analysis</title>
-    <!-- Link to the separate CSS file -->
     <link rel="stylesheet" href="style.css">
-    <!-- Load Chart.js Library for graphing -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- Load Font Awesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-    <!-- Navigation -->
+    <div id="loading-overlay" class="loading" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--bg-primary); z-index: 5000; display: none; flex-direction: column; gap: 1rem; font-size: 1.2rem;">
+        <i class="fas fa-spinner fa-spin fa-3x"></i>
+        <span>Loading Market Data...</span>
+    </div>
+
     <nav class="navbar">
         <div class="nav-container">
             <div class="nav-brand" onclick="showPage('home')">
@@ -40,22 +41,20 @@ require_once 'auth.php';
                     // Logged in: Show Logout button
                     echo '<a href="auth.php?action=logout">Logout</a>'; 
                 } else {
-                    // Logged out: Show Login button
-                    echo '<a href="login.php">Login</a>';
+                    // Logged out: Show Login button, now opens the modal
+                    echo '<a href="#" onclick="openLoginModal(event)">Login</a>';
                 }
                 ?>
             </div>
         </div>
     </nav>
 
-    <!-- Homepage -->
     <div id="homepage" class="page active">
         <div class="hero-section">
             <div class="container">
                 <h1>Stock Analysis Made Simple</h1>
                 <p>Search, analyze, and screen stocks with powerful financial data.</p>
                 
-                <!-- REINTRODUCED SEARCH FEATURE (Dropdown) -->
                 <div class="search-container">
                     <div class="search-box">
                         <i class="fas fa-search"></i>
@@ -63,12 +62,37 @@ require_once 'auth.php';
                         <div id="search-dropdown" class="search-dropdown"></div>
                     </div>
                 </div>
-                <!-- END SEARCH FEATURE -->
-                
-            </div>
+                <div class="quick-filter-container">
+                    <button class="quick-filter-btn" onclick="showPage('screens'); applyPresetFilter('low-pe')">
+                        <i class="fas fa-chart-line"></i> Low PE Value Stocks
+                    </button>
+                    <button class="quick-filter-btn" onclick="showPage('screens'); applyPresetFilter('high-growth')">
+                        <i class="fas fa-rocket"></i> High Growth Potential
+                    </button>
+                    <button class="quick-filter-btn" onclick="showPage('portfolio')">
+                        <i class="fas fa-briefcase"></i> View My Portfolio
+                    </button>
+                </div>
+                </div>
         </div>
 
         <div class="container">
+            <div class="market-summary-section">
+                <h2 class="text-center">Today's Market Snapshot</h2>
+                <div class="market-indices-grid">
+                    <div class="market-card">
+                        <h4>SENSEX</h4>
+                        <p id="index-sensex-price">0.00</p>
+                        <span id="index-sensex-change" class="change positive">0.00%</span>
+                    </div>
+                    <div class="market-card">
+                        <h4>NIFTY 50</h4>
+                        <p id="index-nifty-price">0.00</p>
+                        <span id="index-nifty-change" class="change negative">0.00%</span>
+                    </div>
+                </div>
+            </div>
+
             <div class="features-section">
                 <h2 class="text-center">Powerful Stock Analysis Tools</h2>
                 <div class="features-grid">
@@ -102,7 +126,6 @@ require_once 'auth.php';
         </div>
     </div>
 
-    <!-- Company Page -->
     <div id="company-page" class="page">
         <div class="container">
             <div class="company-header">
@@ -115,12 +138,11 @@ require_once 'auth.php';
                     <div class="company-meta">
                         <span id="company-ticker">TICKER</span>
                         <span class="price" id="company-price">₹0.00</span>
-                        <span class="change" id="company-change">0.00%</span>
+                        <span class="change" id="company-change"><i class="fas fa-caret-up change-indicator"></i> 0.00%</span> 
                     </div>
                 </div>
             </div>
 
-            <!-- Key Ratios -->
             <div class="ratios-section">
                 <h3>Key Ratios</h3>
                 <div class="ratios-grid">
@@ -151,7 +173,6 @@ require_once 'auth.php';
                 </div>
             </div>
 
-            <!-- Price Chart Section -->
             <div class="chart-section">
                 <h3>Price Chart</h3>
                 <div class="chart-controls">
@@ -166,7 +187,6 @@ require_once 'auth.php';
                 </div>
             </div>
 
-            <!-- Financial Ratios Chart -->
             <div class="chart-section">
                 <h3>Financial Ratios Trend</h3>
                 <div class="chart-container">
@@ -174,7 +194,6 @@ require_once 'auth.php';
                 </div>
             </div>
 
-            <!-- Peer Comparison -->
             <div class="peer-comparison">
                 <h3>Peer Comparison</h3>
                 <div class="peer-table-container">
@@ -190,13 +209,11 @@ require_once 'auth.php';
                             </tr>
                         </thead>
                         <tbody id="peer-comparison-data">
-                            <!-- Data populated by JavaScript -->
-                        </tbody>
+                            </tbody>
                     </table>
                 </div>
             </div>
 
-            <!-- Financial Tables -->
             <div class="tabs">
                 <button class="tab active" onclick="showTab(event, 'profit-loss')">Profit & Loss</button>
                 <button class="tab" onclick="showTab(event, 'balance-sheet')">Balance Sheet</button>
@@ -217,8 +234,7 @@ require_once 'auth.php';
                             </tr>
                         </thead>
                         <tbody id="profit-loss-data">
-                            <!-- Data populated by JavaScript -->
-                        </tbody>
+                            </tbody>
                     </table>
                 </div>
             </div>
@@ -237,8 +253,7 @@ require_once 'auth.php';
                             </tr>
                         </thead>
                         <tbody id="balance-sheet-data">
-                            <!-- Data populated by JavaScript -->
-                        </tbody>
+                            </tbody>
                     </table>
                 </div>
             </div>
@@ -257,15 +272,13 @@ require_once 'auth.php';
                             </tr>
                         </thead>
                         <tbody id="cash-flow-data">
-                            <!-- Data populated by JavaScript -->
-                        </tbody>
+                            </tbody>
                     </table>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Screens Page -->
     <div id="screens-page" class="page">
         <div class="container">
             <div class="screens-header">
@@ -304,9 +317,19 @@ require_once 'auth.php';
 
                     <h3>Query Builder</h3>
                     <div class="query-builder">
-                        <textarea id="custom-query" placeholder="Example: MarketCap > 500000 AND PE < 20 AND ROE > 15" rows="4"></textarea>
+                        <textarea id="custom-query" placeholder="Example: MarketCap > 500000000000 AND PE < 20 AND ROE > 15" rows="4"></textarea>
                         <button class="apply-filter-btn" onclick="applyCustomFilter()">Apply Filter</button>
-                    </div>
+                        <div class="query-hint">
+                            Use these fields: 
+                            <span class="hint-tag">MarketCap</span>
+                            <span class="hint-tag">PE</span>
+                            <span class="hint-tag">ROE</span>
+                            <span class="hint-tag">Dividend</span>
+                            <span class="hint-tag">Growth</span>
+                            <span class="hint-tag">Price</span>
+                        </div>
+                        </div>
+
                 </div>
 
                 <div class="screens-main">
@@ -331,14 +354,22 @@ require_once 'auth.php';
                                     <th onclick="sortTable('roe')">
                                         ROE <i class="fas fa-sort"></i>
                                     </th>
+                                    <th onclick="sortTable('dividend')">
+                                        Dividend % <i class="fas fa-sort"></i>
+                                    </th>
+                                    <th onclick="sortTable('growth')">
+                                        Profit Growth <i class="fas fa-sort"></i>
+                                    </th>
+                                    <th onclick="sortTable('salesGrowth')">
+                                        Sales Growth <i class="fas fa-sort"></i>
+                                    </th>
                                     <th onclick="sortTable('price')">
                                         Price <i class="fas fa-sort"></i>
                                     </th>
                                 </tr>
                             </thead>
                             <tbody id="stock-table-body">
-                                <!-- Data populated by JavaScript -->
-                            </tbody>
+                                </tbody>
                         </table>
                     </div>
 
@@ -356,7 +387,6 @@ require_once 'auth.php';
         </div>
     </div>
 
-    <!-- Portfolio Page -->
     <div id="portfolio-page" class="page">
         <div class="container">
             <div class="page-header">
@@ -404,15 +434,13 @@ require_once 'auth.php';
                             </tr>
                         </thead>
                         <tbody id="holdings-data">
-                            <!-- Data populated by JavaScript -->
-                        </tbody>
+                            </tbody>
                     </table>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- News Page -->
     <div id="news-page" class="page">
         <div class="container">
             <div class="page-header">
@@ -480,7 +508,6 @@ require_once 'auth.php';
         </div>
     </div>
 
-    <!-- Tools Page -->
     <div id="tools-page" class="page">
         <div class="container">
             <div class="page-header">
@@ -523,7 +550,6 @@ require_once 'auth.php';
         </div>
     </div>
 
-    <!-- About Page -->
     <div id="about-page" class="page">
         <div class="container">
             <div class="page-header">
@@ -551,7 +577,6 @@ require_once 'auth.php';
         </div>
     </div>
 
-    <!-- Chatbot Widget -->
     <div id="chatbot-widget" class="chatbot-widget">
         <div class="chatbot-header" onclick="toggleChatbot()">
             <i class="fas fa-robot"></i>
@@ -573,8 +598,28 @@ require_once 'auth.php';
             </div>
         </div>
     </div>
+    
+    <div id="login-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>User Login</h2>
+                <span class="close-btn" onclick="closeLoginModal()">&times;</span>
+            </div>
+            <p id="modal-error-message" class="error-message" style="display: none;"></p>
 
-    <!-- Link to the logic file -->
+            <form id="login-form">
+                <div class="form-group">
+                    <label for="modal-username">Username (student)</label>
+                    <input type="text" id="modal-username" name="username" value="student" required>
+                </div>
+                <div class="form-group">
+                    <label for="modal-password">Password (password123)</label>
+                    <input type="password" id="modal-password" name="password" value="password123" required>
+                </div>
+                <button type="submit" class="btn-primary">Login</button>
+            </form>
+        </div>
+    </div>
     <script src="app.js"></script>
 </body>
 </html>
